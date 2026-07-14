@@ -1,0 +1,15 @@
+{
+  "lastChangelogVersion": "0.80.6",
+  "defaultProvider": "opencode",
+  "defaultModel": "hy3-free",
+  "defaultThinkingLevel": "high",
+  "packages": [
+    {
+      "source": "npm:@plannotator/pi-extension",
+      "skills": []
+    },
+    "npm:@ayulab/pi-rewind",
+    "npm:pi-ask-user"
+  ],
+  "hideThinkingBlock": false
+}

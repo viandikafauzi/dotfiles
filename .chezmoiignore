@@ -1,0 +1,22 @@
+# --- Secrets: never sync ---
+.pi/agent/auth.json
+
+# --- Per-machine security state ---
+.pi/agent/trust.json
+
+# --- Churn / regenerated data ---
+.pi/agent/sessions/**
+.pi/agent/ayu/**
+
+# --- Reinstallable (packages come back from settings.json) ---
+.pi/agent/bin/**
+.pi/agent/npm/**
+
+# --- opencode: config + commands only; deps are reinstallable ---
+.config/opencode/package.json
+.config/opencode/package-lock.json
+.config/opencode/bun.lock
+.config/opencode/.gitignore
+
+# --- Never sync dependencies ---
+**/node_modules/**
