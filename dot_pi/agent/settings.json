@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.80.6",
-  "defaultProvider": "opencode",
-  "defaultModel": "hy3-free",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
   "defaultThinkingLevel": "high",
   "packages": [
     {
