@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.80.6",
+  "lastChangelogVersion": "0.80.10",
   "defaultProvider": "opencode",
-  "defaultModel": "hy3-free",
+  "defaultModel": "big-pickle",
   "defaultThinkingLevel": "high",
   "packages": [
     {
