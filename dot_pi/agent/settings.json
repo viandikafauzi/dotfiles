@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.80.6",
+  "lastChangelogVersion": "0.80.10",
   "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "mimo-v2.5",
   "defaultThinkingLevel": "high",
   "packages": [
     {
@@ -9,7 +9,12 @@
       "skills": []
     },
     "npm:@ayulab/pi-rewind",
-    "npm:pi-ask-user"
+    "npm:pi-ask-user",
+    "npm:@dietrichgebert/ponytail",
+    "npm:@juicesharp/rpiv-todo",
+    "npm:@ff-labs/pi-fff",
+    "npm:pi-thinking-steps"
   ],
-  "hideThinkingBlock": false
+  "hideThinkingBlock": false,
+  "theme": "dark"
 }
