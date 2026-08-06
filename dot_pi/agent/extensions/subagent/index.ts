@@ -5,13 +5,15 @@
  *   - background (default): Spawns `pi --mode json -p --no-session`.
  *     Returns immediately. Parses JSON events in background for live
  *     widget updates. Injects result via sendMessage when done.
- *   - interactive: Full pi in a tmux window. Same as before.
+ *   - interactive: Uses Herdr to spawn pi in a managed pane.
+ *     User can switch to the pane and steer the agent.
+ *     Results auto-inject when complete.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@earendil-works/pi-ai";
-import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { writeFile, readFile, unlink, access } from "node:fs/promises";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { readFile, unlink, access } from "node:fs/promises";
 import { existsSync, writeFileSync, createWriteStream, type WriteStream } from "node:fs";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import {
@@ -48,8 +50,10 @@ interface TrackedRun {
   errorMessage?: string;
   lastToolCall?: string;
   proc?: ChildProcess;
-  // Interactive-only
-  tmuxSession?: string;
+  // Interactive-only (Herdr)
+  herdrTabId?: string;
+  herdrPaneId?: string;
+  herdrAgentName?: string;
   resultFile?: string;
   watcher?: ReturnType<typeof setInterval>;
   // Timeout
@@ -112,6 +116,93 @@ function elapsedStr(start: number, end?: number): string {
   return s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(1)}m`;
 }
 
+// ── Herdr helpers ──────────────────────────────────────────────────────
+
+async function herdrJson(args: string[], timeoutMs = 15000): Promise<any> {
+  try {
+    const out = await new Promise<string>((resolve, reject) => {
+      execFile("herdr", args, { encoding: "utf8", timeout: timeoutMs }, (err, stdout) => {
+        if (err) return reject(err);
+        resolve(stdout);
+      });
+    });
+    return JSON.parse(out);
+  } catch {
+    return null;
+  }
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+interface HerdrTab {
+  tabId: string;
+  paneId: string;
+}
+
+async function herdrTabCreate(cwd: string, label: string): Promise<HerdrTab | null> {
+  const res = await herdrJson([
+    "tab", "create",
+    "--cwd", cwd,
+    "--no-focus",
+    "--label", label,
+  ]);
+  const tabId = res?.result?.tab?.tab_id;
+  const paneId = res?.result?.root_pane?.pane_id;
+  if (!tabId || !paneId) return null;
+  return { tabId, paneId };
+}
+
+async function herdrTabClose(tabId: string): Promise<void> {
+  await herdrJson(["tab", "close", tabId]);
+}
+
+async function herdrAgentStart(name: string, paneId: string): Promise<boolean> {
+  // Retry — the shell needs a moment to be ready after tab creation
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await herdrJson([
+      "agent", "start", name,
+      "--kind", "pi",
+      "--pane", paneId,
+      "--timeout", "15000",
+    ], 20000);
+    if (res?.result?.agent) return true;
+    // Wait 2s before retry (async, non-blocking)
+    await sleepMs(2000);
+  }
+  return false;
+}
+
+async function herdrAgentPrompt(name: string, task: string): Promise<boolean> {
+  const res = await herdrJson([
+    "agent", "prompt", name, task,
+    "--wait", "--timeout", "120000",
+  ], 130000);
+  return !!res?.result;
+}
+
+async function herdrAgentRead(name: string): Promise<string> {
+  try {
+    const res = await herdrJson([
+      "agent", "read", name,
+      "--source", "recent-unwrapped",
+      "--lines", "200",
+    ], 10000);
+    return res?.result?.output ?? "";
+  } catch {
+    return "";
+  }
+}
+
+async function herdrAgentGet(name: string): Promise<{ status?: string; alive: boolean }> {
+  const res = await herdrJson(["agent", "get", name]);
+  if (!res?.result?.agent) return { alive: false };
+  return { status: res.result.agent.agent_status, alive: true };
+}
+
+
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -136,7 +227,8 @@ export default function (pi: ExtensionAPI) {
           ? theme.fg("dim", ` → ${r.lastToolCall}`)
           : theme.fg("dim", " starting…");
         const usage = r.usage.turns > 0 ? theme.fg("muted", ` [${formatUsage(r.usage)}]`) : "";
-        return `${icon} ${theme.fg("accent", r.id)} ${theme.fg("dim", elapsed)}${activity}${usage}`;
+        const tab = r.herdrTabId ? theme.fg("dim", ` [${r.herdrTabId}]`) : "";
+        return `${icon} ${theme.fg("accent", r.id)} ${theme.fg("dim", elapsed)}${activity}${usage}${tab}`;
       });
       return new Text(lines.join("\n"), 0, 0);
     });
@@ -144,7 +236,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── Kill/cleanup helper ──
 
-  function killRun(run: TrackedRun, reason: "killed" | "timeout"): void {
+  async function killRun(run: TrackedRun, reason: "killed" | "timeout"): Promise<void> {
     if (run.timeoutTimer) clearTimeout(run.timeoutTimer);
     if (run.watcher) clearInterval(run.watcher);
 
@@ -153,11 +245,11 @@ export default function (pi: ExtensionAPI) {
       setTimeout(() => { try { run.proc?.kill("SIGKILL"); } catch {} }, 5000);
     }
 
-    if (run.mode === "interactive" && run.tmuxSession) {
-      try {
-        execFileSync("tmux", ["send-keys", "-t", run.tmuxSession, "C-c", ""], { stdio: "ignore" });
-        execFileSync("tmux", ["send-keys", "-t", run.tmuxSession, "exit", "Enter"], { stdio: "ignore" });
-      } catch {}
+    if (run.mode === "interactive" && run.herdrTabId) {
+      // Send Ctrl+C then close the tab
+      try { await herdrJson(["agent", "send-keys", run.herdrAgentName || "", "ctrl+c"], 5000); } catch {}
+      await sleepMs(1000);
+      try { await herdrTabClose(run.herdrTabId!); } catch {}
     }
 
     run.exitCode = reason === "timeout" ? 124 : 130;
@@ -375,72 +467,24 @@ export default function (pi: ExtensionAPI) {
     return run;
   }
 
-  // ── Interactive mode: tmux ──
+  // ── Interactive mode: Herdr ──
 
-  function isTargetAlive(target: string): boolean {
-    try {
-      execFileSync("tmux", ["display-message", "-t", target, "-p", ""], { stdio: "ignore" });
-      return true;
-    } catch { return false; }
-  }
-
-  function spawnInteractive(id: string, task: string, cwd: string): TrackedRun {
-    const tmuxName = `subagent-${id}`;
+  async function spawnInteractive(id: string, task: string, cwd: string): Promise<TrackedRun> {
+    const agentName = `sub-${id.slice(0, 24)}`; // herdr names max 32 chars
     const resultFile = `/tmp/subagent-${id}-result.md`;
-    const promptFile = `/tmp/subagent-${id}-prompt.md`;
 
-    let parentSession = "";
-    try {
-      parentSession = execFileSync("tmux", ["display-message", "-p", "#{session_name}"],
-        { encoding: "utf8" }).trim();
-    } catch {}
-
-    let pasteTarget: string;
-
-    if (parentSession) {
-      pasteTarget = `${parentSession}:${tmuxName}`;
-      execFileSync("tmux", [
-        "new-window", "-t", parentSession, "-n", tmuxName, "-c", cwd, "pi",
-      ], { stdio: "ignore" });
-    } else {
-      pasteTarget = tmuxName;
-      execFileSync("tmux", [
-        "new-session", "-d", "-s", tmuxName, "-c", cwd, "pi",
-      ], { stdio: "ignore" });
-      try {
-        execFileSync("tmux", ["resize-window", "-t", tmuxName, "-x", "200", "-y", "50"],
-          { stdio: "ignore" });
-      } catch {}
+    // 1. Create a new background tab
+    const tab = await herdrTabCreate(cwd, `sub-${id.slice(0, 20)}`);
+    if (!tab) {
+      throw new Error("Failed to create Herdr tab. Is Herdr running?");
     }
 
-    const framedTask = `${task}
-
-When you have completed the task, do these two things:
-1. Use the write tool to save your complete findings/summary to ${resultFile}
-2. Then say "SUBAGENT COMPLETE" so I know you're done.`;
-
-    const maxWaitMs = 30_000;
-    const waitStart = Date.now();
-    const readyPoller = setInterval(() => {
-      try {
-        const pane = execFileSync("tmux", ["capture-pane", "-t", pasteTarget, "-p"],
-          { encoding: "utf8" });
-        const ready = /\$\d+\.\d+/.test(pane);
-        if (!ready && Date.now() - waitStart < maxWaitMs) return;
-
-        clearInterval(readyPoller);
-        writeFileSync(promptFile, framedTask);
-        const bufferName = `${tmuxName}-prompt`;
-        execFileSync("tmux", ["load-buffer", "-b", bufferName, promptFile], { stdio: "ignore" });
-        execFileSync("tmux", ["paste-buffer", "-dp", "-b", bufferName, "-t", pasteTarget], { stdio: "ignore" });
-        execFileSync("tmux", ["send-keys", "-t", pasteTarget, "Enter"], { stdio: "ignore" });
-      } catch {
-        if (Date.now() - waitStart >= maxWaitMs) {
-          clearInterval(readyPoller);
-          injectResult();
-        }
-      }
-    }, 1000);
+    // 2. Start pi agent in the tab's root pane
+    const started = await herdrAgentStart(agentName, tab.paneId);
+    if (!started) {
+      await herdrTabClose(tab.tabId);
+      throw new Error(`Failed to start pi agent in tab ${tab.tabId}`);
+    }
 
     const run: TrackedRun = {
       id,
@@ -449,15 +493,30 @@ When you have completed the task, do these two things:
       startTime: Date.now(),
       messages: [],
       usage: emptyUsage(),
-      tmuxSession: pasteTarget,
+      herdrTabId: tab.tabId,
+      herdrPaneId: tab.paneId,
+      herdrAgentName: agentName,
       resultFile,
     };
 
+    // 3. Send the task via herdr agent prompt (async, non-blocking)
+    const framedTask = `${task}
+
+When you have completed the task, do these two things:
+1. Use the write tool to save your complete findings/summary to ${resultFile}
+2. Then say "SUBAGENT COMPLETE" so I know you're done.`;
+
+    // Fire prompt in background — don't await, let watcher handle completion
+    herdrAgentPrompt(agentName, framedTask).catch(() => {
+      // Prompt send failed — agent may have exited; watcher will detect
+    });
+
+    // 4. Watch for completion: poll herdr agent state + result file
     const injectResult = async () => {
       const elapsed = elapsedStr(run.startTime);
       if (run.timeoutTimer) { clearTimeout(run.timeoutTimer); run.timeoutTimer = undefined; }
       if (run.watcher) clearInterval(run.watcher);
-      active.delete(id);
+      active.delete(run.id);
       updateWidget();
 
       let content: string;
@@ -465,34 +524,57 @@ When you have completed the task, do these two things:
         const result = await readFile(resultFile, "utf8");
         content = `## Subagent \`${id}\` completed (${elapsed})\n\n${result}`;
       } catch {
-        let errMsg = "";
-        try { errMsg = await readFile(`/tmp/subagent-${id}-err.log`, "utf8"); } catch {}
-        content = `## Subagent \`${id}\` failed (${elapsed})\n\n${errMsg || "No output."}`;
+        // Try reading from Herdr pane output
+        const paneOutput = await herdrAgentRead(agentName);
+        if (paneOutput) {
+          content = `## Subagent \`${id}\` completed (${elapsed})\n\n${paneOutput}`;
+        } else {
+          content = `## Subagent \`${id}\` failed (${elapsed})\n\nNo output.`;
+        }
       }
+
+      // Clean up the tab
+      try { await herdrTabClose(tab.tabId); } catch {}
 
       pi.sendMessage(
         { customType: "subagent-result", content, display: true },
         { triggerTurn: true, deliverAs: "followUp" }
       );
-      unlink(`/tmp/subagent-${id}-prompt.md`).catch(() => {});
+      unlink(resultFile).catch(() => {});
     };
 
+    // Poll every 3s for faster detection
+    let pollCount = 0;
+    const maxPolls = Math.ceil((run.timeoutMs || 600_000) / 3000);
     run.watcher = setInterval(async () => {
-      const alive = isTargetAlive(pasteTarget);
+      pollCount++;
+
+      // Check if result file exists (agent wrote it)
       let resultExists = false;
       try { await access(resultFile); resultExists = true; } catch {}
 
       if (resultExists) {
-        if (alive) {
-          setTimeout(() => injectResult(), 3000);
-          if (run.watcher) clearInterval(run.watcher);
-        } else {
-          injectResult();
-        }
-      } else if (!alive) {
-        injectResult();
+        // Give it a moment for the agent to finish writing
+        await sleepMs(1000);
+        await injectResult();
+        return;
       }
-    }, 5000);
+
+      // Check if agent is still alive via Herdr (less frequently to reduce CLI overhead)
+      if (pollCount % 2 === 0) {
+        const agentState = await herdrAgentGet(agentName);
+        if (!agentState.alive) {
+          // Agent exited — read whatever output we can
+          await injectResult();
+          return;
+        }
+      }
+
+      // Safety valve: if we've been polling too long, give up
+      if (pollCount >= maxPolls) {
+        await injectResult();
+      }
+    }, 3000);
 
     return run;
   }
@@ -537,7 +619,7 @@ When you have completed the task, do these two things:
       "Use short descriptive IDs like 'cr-review', 'coverage', 'pipeline-check'",
       "Max 3-4 concurrent subagents to avoid rate limits",
       "Subagent results arrive as messages — you'll get a turn to incorporate them",
-      "Interactive mode spawns pi in a tmux window the user can switch to and steer, with results still auto-injecting when done",
+      "Interactive mode spawns pi in a Herdr pane the user can switch to and steer, with results still auto-injecting when done",
     ],
     parameters: Type.Object({
       id: Type.String({
@@ -551,7 +633,8 @@ When you have completed the task, do these two things:
       ),
       interactive: Type.Optional(
         Type.Boolean({
-          description: "If true, spawns a full pi session in a tmux window the user can switch to. Default: false (background pi -p).",
+          description: "If true, spawns pi in a Herdr pane the user can switch to. Default: true.",
+          default: true,
         })
       ),
       timeout: Type.Optional(
@@ -562,7 +645,8 @@ When you have completed the task, do these two things:
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { id, task, interactive, timeout } = params;
+      const { id, task, timeout } = params;
+      const interactive = params.interactive !== false; // default true
       const cwd = params.workingDir || ctx.cwd;
       widgetCtx = ctx;
 
@@ -573,24 +657,24 @@ When you have completed the task, do these two things:
       const timeoutMs = (timeout || 10) * 60_000;
 
       if (interactive) {
-        const run = spawnInteractive(id, task, cwd);
+        const run = await spawnInteractive(id, task, cwd);
         run.timeoutMs = timeoutMs;
-        run.timeoutTimer = setTimeout(() => killRun(run, "timeout"), timeoutMs);
+        run.timeoutTimer = setTimeout(() => { killRun(run, "timeout").catch(() => {}); }, timeoutMs);
         active.set(id, run);
         updateWidget();
 
         return {
           content: [{
             type: "text" as const,
-            text: `Subagent '${id}' spawned in tmux window. Switch to it:\n  tmux select-window -t ${run.tmuxSession}\nResults will auto-inject when complete.`,
+            text: `Subagent '${id}' spawned in Herdr tab ${run.herdrTabId}. Switch to it in the Herdr TUI.\nResults will auto-inject when complete.`,
           }],
-          details: { id, mode: "interactive", tmuxSession: run.tmuxSession, cwd },
+          details: { id, mode: "interactive", tabId: run.herdrTabId, paneId: run.herdrPaneId, agentName: run.herdrAgentName, cwd },
         };
       }
 
       const run = spawnBackground(id, task, cwd);
       run.timeoutMs = timeoutMs;
-      run.timeoutTimer = setTimeout(() => killRun(run, "timeout"), timeoutMs);
+      run.timeoutTimer = setTimeout(() => { killRun(run, "timeout").catch(() => {}); }, timeoutMs);
       active.set(id, run);
       updateWidget();
 
@@ -619,14 +703,13 @@ When you have completed the task, do these two things:
         };
       }
 
-      const now = Date.now();
       const lines = Array.from(active.entries()).map(([id, run]) => {
         const elapsed = elapsedStr(run.startTime);
-        const mode = run.mode === "interactive" ? "tmux" : "bg";
+        const mode = run.mode === "interactive" ? "herdr" : "bg";
         const activity = run.lastToolCall ? ` — ${run.lastToolCall}` : "";
         const usage = run.usage.turns > 0 ? ` [${formatUsage(run.usage)}]` : "";
-        const attach = run.tmuxSession ? ` — \`tmux select-window -t ${run.tmuxSession}\`` : "";
-        return `- **${id}** [${mode}] ${elapsed}${activity}${usage}${attach}`;
+        const tab = run.herdrTabId ? ` — tab \`${run.herdrTabId}\`` : "";
+        return `- **${id}** [${mode}] ${elapsed}${activity}${usage}${tab}`;
       });
 
       return {
@@ -660,7 +743,7 @@ When you have completed the task, do these two things:
         throw new Error(`Subagent '${id}' has already finished.`);
       }
 
-      killRun(run, "killed");
+      killRun(run, "killed").catch(() => {});
 
       return {
         content: [{
