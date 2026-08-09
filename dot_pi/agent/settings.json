@@ -12,7 +12,8 @@
     "npm:pi-ask-user",
     "npm:@dietrichgebert/ponytail",
     "npm:@ff-labs/pi-fff",
-    "npm:pi-thinking-steps"
+    "npm:pi-thinking-steps",
+    "npm:pi-intercom"
   ],
   "hideThinkingBlock": false,
   "theme": "dark",
