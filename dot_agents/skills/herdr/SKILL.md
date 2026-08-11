@@ -89,7 +89,7 @@ Creation responses expose the IDs to use next. `workspace create` returns `.resu
 
 ## Start and coordinate an agent
 
-Default to a sibling pane in the current tab and the current working directory. Do not create a workspace, tab, worktree, or different cwd unless the user explicitly requests that topology or location.
+Default to a new tab in the current workspace with the current working directory. Do not create a workspace, worktree, or different cwd unless the user explicitly requests that topology or location.
 
 Honor a direction requested by the user. Otherwise inspect the caller pane:
 
@@ -97,13 +97,13 @@ Honor a direction requested by the user. Otherwise inspect the caller pane:
 herdr pane layout --pane "$HERDR_PANE_ID"
 ```
 
-Split a wide pane to the right and a narrow or tall pane down. Avoid repeated same-direction splits that create unusably narrow columns or short rows. Keep the user's focus in the calling pane and explicitly preserve the caller's working directory:
+Create a new tab with the current working directory and keep user focus unchanged:
 
 ```bash
-herdr pane split --current --direction right --cwd "$PWD" --no-focus
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --no-focus
 ```
 
-Replace `right` with `down` when appropriate. Read the new pane ID from `.result.pane.pane_id`.
+Read the new tab's root pane ID from `.result.root_pane.pane_id`.
 
 An available shell pane must be at its interactive prompt, with the shell itself in the foreground and no foreground command, editor, or agent running. Start a supported agent in that pane with a useful unique name:
 
