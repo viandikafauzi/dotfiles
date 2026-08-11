@@ -1,0 +1,11 @@
+onboarding = false
+[ui]
+# Auto-copy mouse selection to the clipboard when the selection ends.
+copy_on_select = true
+
+[ui.toast]
+delivery = "system"
+
+[theme]
+name = "tokyo-night"
+auto_switch = false
