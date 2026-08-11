@@ -9,3 +9,8 @@ delivery = "system"
 [theme]
 name = "tokyo-night"
 auto_switch = false
+
+[keys]
+# rarely switch tabs; prefer cycling agents
+next_tab = ""
+next_agent = "prefix+n"
