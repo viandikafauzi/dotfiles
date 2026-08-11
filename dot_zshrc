@@ -1,0 +1,16 @@
+# --- PATH: tools not managed by mise (hermes, opencode, coderabbit, pi, uv) ---
+# nvm node bins must be UNQUOTED to expand; (N) = no match → nothing added
+export PATH="$HOME/.local/bin:$HOME/bin:$HOME/.opencode/bin:$HOME/.turso:$HOME/.vite-plus/bin:$PATH"
+path=("$HOME/.config/nvm/versions/node/"*/bin(N) $path)
+
+# --- mise: node/pnpm/herdr + per-project mise.toml ---
+# shims are prepended here, so mise-managed tools beat ~/.local/bin
+if command -v mise >/dev/null 2>&1; then
+  eval "$(mise activate zsh)"
+fi
+
+# --- oh-my-zsh ---
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
+source "$ZSH/oh-my-zsh.sh"

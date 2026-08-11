@@ -20,3 +20,6 @@
 
 # --- Never sync dependencies ---
 **/node_modules/**
+
+# --- Ops scripts (run from the repo, never applied to $HOME) ---
+scripts/

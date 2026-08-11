@@ -1,0 +1,4 @@
+[tools]
+herdr = "latest"
+node = "24"
+pnpm = "latest"
