@@ -1,6 +1,8 @@
 # --- PATH: tools not managed by mise (hermes, opencode, coderabbit, pi, uv) ---
 # nvm node bins must be UNQUOTED to expand; (N) = no match → nothing added
 export PATH="$HOME/.local/bin:$HOME/bin:$HOME/.opencode/bin:$HOME/.turso:$HOME/.vite-plus/bin:$PATH"
+# --- brew (linuxbrew) ---
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 path=("$HOME/.config/nvm/versions/node/"*/bin(N) $path)
 
 # --- mise: node/pnpm/herdr + per-project mise.toml ---
