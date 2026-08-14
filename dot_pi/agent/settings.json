@@ -11,7 +11,8 @@
     "npm:@dietrichgebert/ponytail",
     "npm:@ff-labs/pi-fff",
     "npm:pi-thinking-steps",
-    "npm:@juicesharp/rpiv-ask-user-question"
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:pi-intercom"
   ],
   "hideThinkingBlock": false,
   "theme": "dark",
