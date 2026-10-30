@@ -11,6 +11,7 @@
 # --- Reinstallable (packages come back from settings.json) ---
 .pi/agent/bin/**
 .pi/agent/npm/**
+.pi/agent/git/**
 
 # --- opencode: config + commands only; deps are reinstallable ---
 .config/opencode/package.json
