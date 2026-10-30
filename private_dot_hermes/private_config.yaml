@@ -661,3 +661,8 @@ smart_model_routing:
 # fallback_model:
 #   provider: openrouter
 #   model: anthropic/claude-sonnet-4
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false
+    offer_version: 2

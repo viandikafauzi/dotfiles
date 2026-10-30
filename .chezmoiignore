@@ -23,8 +23,3 @@
 
 # --- Ops scripts (run from the repo, never applied to $HOME) ---
 scripts/
-
-# --- ~/.agents/skills: only the hand-written skills live in this repo ---
-# Anything else in there is installed by the skills CLI, not tracked here.
-.agents/skills/*
-!.agents/skills/bro
