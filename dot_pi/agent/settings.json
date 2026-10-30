@@ -4,10 +4,6 @@
   "defaultModel": "deepseek-v4.1-flash",
   "defaultThinkingLevel": "max",
   "packages": [
-    {
-      "source": "npm:@plannotator/pi-extension",
-      "skills": []
-    },
     "npm:@dietrichgebert/ponytail",
     "npm:@ff-labs/pi-fff",
     "npm:pi-thinking-steps",
