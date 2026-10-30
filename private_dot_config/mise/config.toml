@@ -1,4 +1,5 @@
 [tools]
-herdr = "latest"
+bun = "latest"
+gh = "latest"
 node = "24"
 pnpm = "latest"

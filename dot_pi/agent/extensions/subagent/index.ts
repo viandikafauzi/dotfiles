@@ -5,7 +5,8 @@
  *   - background (default): Spawns `pi --mode json -p --no-session`.
  *     Returns immediately. Parses JSON events in background for live
  *     widget updates. Injects result via sendMessage when done.
- *   - interactive: Uses Herdr to spawn pi in a managed pane.
+ *   - interactive: Uses Herdr to spawn pi in a managed pane. Without herdr
+ *     installed it silently falls back to a headless (background) subagent.
  *     User can switch to the pane and steer the agent.
  *     Results auto-inject when complete.
  */
@@ -469,14 +470,14 @@ export default function (pi: ExtensionAPI) {
 
   // ── Interactive mode: Herdr ──
 
-  async function spawnInteractive(id: string, task: string, cwd: string): Promise<TrackedRun> {
+  async function spawnInteractive(id: string, task: string, cwd: string): Promise<TrackedRun | null> {
     const agentName = `sub-${id.slice(0, 24)}`; // herdr names max 32 chars
     const resultFile = `/tmp/subagent-${id}-result.md`;
 
     // 1. Create a new background tab
     const tab = await herdrTabCreate(cwd, `sub-${id.slice(0, 20)}`);
     if (!tab) {
-      throw new Error("Failed to create Herdr tab. Is Herdr running?");
+      return null; // herdr absent or not running: caller falls back to headless
     }
 
     // 2. Start pi agent in the tab's root pane
@@ -658,18 +659,21 @@ When you have completed the task, do these two things:
 
       if (interactive) {
         const run = await spawnInteractive(id, task, cwd);
-        run.timeoutMs = timeoutMs;
-        run.timeoutTimer = setTimeout(() => { killRun(run, "timeout").catch(() => {}); }, timeoutMs);
-        active.set(id, run);
-        updateWidget();
+        if (run) {
+          run.timeoutMs = timeoutMs;
+          run.timeoutTimer = setTimeout(() => { killRun(run, "timeout").catch(() => {}); }, timeoutMs);
+          active.set(id, run);
+          updateWidget();
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Subagent '${id}' spawned in Herdr tab ${run.herdrTabId}. Switch to it in the Herdr TUI.\nResults will auto-inject when complete.`,
-          }],
-          details: { id, mode: "interactive", tabId: run.herdrTabId, paneId: run.herdrPaneId, agentName: run.herdrAgentName, cwd },
-        };
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Subagent '${id}' spawned in Herdr tab ${run.herdrTabId}. Switch to it in the Herdr TUI.\nResults will auto-inject when complete.`,
+            }],
+            details: { id, mode: "interactive", tabId: run.herdrTabId, paneId: run.herdrPaneId, agentName: run.herdrAgentName, cwd },
+          };
+        }
+        // No herdr: fall through to a headless subagent.
       }
 
       const run = spawnBackground(id, task, cwd);
