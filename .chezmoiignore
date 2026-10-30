@@ -24,12 +24,7 @@
 # --- Ops scripts (run from the repo, never applied to $HOME) ---
 scripts/
 
-# --- ~/.agents/skills: upstream installs are restored from .skill-lock.json, not vendored ---
-# Only the hand-written skills below live in this repo.
+# --- ~/.agents/skills: only the hand-written skills live in this repo ---
+# Anything else in there is installed by the skills CLI, not tracked here.
 .agents/skills/*
 !.agents/skills/bro
-!.agents/skills/herdr
-!.agents/skills/improve
-!.agents/skills/plannotator-annotate
-!.agents/skills/plannotator-last
-!.agents/skills/plannotator-review
