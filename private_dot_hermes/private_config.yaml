@@ -633,9 +633,7 @@ platform_toolsets:
   google_chat:
     - hermes-google_chat
 plugins:
-  enabled:
-    - herdr-agent-state
-    - ponytail
+  enabled: []
   disabled: []
 smart_model_routing:
   enabled: false
