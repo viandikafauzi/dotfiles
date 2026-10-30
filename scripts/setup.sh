@@ -29,19 +29,11 @@ if ! command -v zsh >/dev/null 2>&1; then
   fi
 fi
 
-# --- oh-my-zsh + plugins ---
-if [ ! -d "$HOME/.oh-my-zsh" ]; then
-  log "installing oh-my-zsh"
-  git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
-fi
-for p in zsh-autosuggestions zsh-syntax-highlighting; do
-  if [ ! -d "$HOME/.oh-my-zsh/custom/plugins/$p" ]; then
-    log "installing omz plugin $p"
-    git clone --depth=1 "https://github.com/zsh-users/$p" "$HOME/.oh-my-zsh/custom/plugins/$p"
-  fi
-done
+# --- oh-my-zsh: skipped, the zshrc sources the distro config instead ---
+# On CachyOS that is /usr/share/cachyos-zsh-config (system oh-my-zsh + p10k).
+# On a distro without it, install your own oh-my-zsh framework here.
 
-# --- mise: installs node/pnpm/herdr from config.toml ---
+# --- mise: installs node/pnpm/bun/gh from config.toml ---
 if ! command -v mise >/dev/null 2>&1; then
   log "installing mise"
   curl -fsSL https://mise.run | sh
