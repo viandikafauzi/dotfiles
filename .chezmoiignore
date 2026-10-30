@@ -23,3 +23,7 @@
 
 # --- Ops scripts (run from the repo, never applied to $HOME) ---
 scripts/
+
+# --- pstack: runtime state + model override sheet (written by the extension) ---
+.pi/agent/pstack/**
+.pi/agent/pstack-models.md
